@@ -1,0 +1,137 @@
+---
+title: "Pseudobulk-on-single-cell-atlas"
+output: html_document
+date: "2026-01-10"
+---
+
+```{r}
+# Import modules
+library(edgeR)
+library(limma)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+# Load pseudobulk counts and metadata
+counts <- read.csv("pb_all.csv", check.names = FALSE)
+meta   <- read.csv("meta_all.csv")
+
+# Specify the two cell types to compare
+ctA <- "IL1B+ CD14 monocyte"
+ctB <- "GZMK- CD56dim NK cell"
+
+# Keep only rows corresponding to the selected cell types
+keep_ct <- meta$cell_type %in% c(ctA, ctB)
+counts  <- counts[keep_ct, ]
+meta    <- meta[keep_ct, ]
+
+# Restrict to samples that contain both cell types 
+have_both <- ave(meta$cell_type, meta$sample_id,
+                 FUN = function(x) all(c(ctA, ctB) %in% x))
+counts <- counts[have_both == TRUE, ]
+meta   <- meta[have_both == TRUE, ]
+
+# Construct the count matrix: rows = pseudobulks, columns = genes
+gene_cols <- setdiff(names(counts), c("sample_id", "cell_type"))
+cm <- as.matrix(counts[, gene_cols])
+rownames(cm) <- paste(meta$sample_id, meta$cell_type, sep = "|")
+cm[is.na(cm)] <- 0
+
+# Transpose so genes are rows and pseudobulks (samples) are columns, as required by edgeR/limma
+cm_t <- t(cm)
+
+# Define the group (cell_type) and blocking factor (sample_id)
+group <- relevel(factor(meta$cell_type), ref = ctB)  # compare ctA vs ctB
+block <- factor(meta$sample_id)
+
+# Create DGEList and filter lowly expressed genes in a group-aware manner
+dge <- DGEList(counts = cm_t)
+keep <- filterByExpr(dge, group = group)
+dge  <- dge[keep, , keep.lib.sizes = FALSE]
+
+# Perform TMM library-size normalization
+dge <- calcNormFactors(dge)
+
+# Build design matrix: include sample_id as a blocking factor and cell_type as the variable of interest
+design <- model.matrix(~ block + group)
+
+# Apply voom transformation and fit linear model with empirical Bayes moderation
+v <- voom(dge, design, plot = FALSE)
+fit <- lmFit(v, design)
+fit <- eBayes(fit)
+
+# Determine the coefficient name for ctA vs ctB (non-reference level is "group<ctA>")
+# limma names the group coefficient as "group<level>" for non-reference level.
+coef_name <- paste0("group", ctA)
+
+# Retrieve all genes ranked by significance for the ctA vs ctB contrast
+res <- topTable(fit, coef = coef_name, number = Inf, sort.by = "P")
+
+# Save results to CSV
+write.csv(res, "DE_limma_monocyte_vs_NK.csv", row.names = TRUE)
+```
+
+```{r}
+
+# Categorize genes by significance and direction for volcano plotting
+res_df <- res %>%
+mutate(
+# transform FDR to -log10 scale
+neglog10_padj = -log10(adj.P.Val),
+# label genes: up, down, or not significant
+status = case_when(
+adj.P.Val < 0.05 & logFC > 0 ~ "up",
+adj.P.Val < 0.05 & logFC < 0 ~ "down",
+TRUE ~ "ns"
+)
+)
+
+# Color points by status
+ggplot(res_df, aes(x = logFC, y = neglog10_padj, color = status)) +
+geom_point(size = 0.8) +
+scale_color_manual(values = c(up = "firebrick", down = "royalblue", ns = "grey80")) +
+geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+geom_vline(xintercept = 0, linetype = "dashed") +
+labs(title = "Volcano: IL1B+ CD14 monocyte vs GZMK- CD56dim NK cell",
+x = "log2FC (ctA − ctB)", y = "-log10(FDR)") +
+theme_minimal()
+
+# Select top 30 most significant genes and prepare expression matrix for PCA
+topN <- 30
+# rank by adjusted p-value
+top_genes <- rownames(res)[order(res$adj.P.Val)][1:topN]
+# voom log-CPM for top genes
+mat <- v$E[top_genes, , drop = FALSE]
+# Column annotations for PCA 
+ann_col <- data.frame(
+sample_id = meta$sample_id,
+cell_type = meta$cell_type
+)
+rownames(ann_col) <- colnames(mat)
+
+# Prepare matrix for PCA: samples × genes
+expr <- t(v$E)  
+# PCA on pseudobulks and plot by cell type
+pc <- prcomp(expr, scale. = TRUE)
+pc_df <- data.frame(PC1 = pc$x[,1], PC2 = pc$x[,2],
+cell_type = meta$cell_type,
+sample_id = meta$sample_id)
+ggplot(pc_df, aes(PC1, PC2, color = cell_type)) +
+geom_point(size = 2) +
+labs(title = "PCA of pseudobulks (voom log-CPM)") +
+theme_minimal()
+
+```
+```{r}
+alpha <- 0.05
+up_genes   <- rownames(res_df)[res_df$adj.P.Val < alpha & res_df$logFC > 0]
+down_genes <- rownames(res_df)[res_df$adj.P.Val < alpha & res_df$logFC < 0]
+
+writeLines(up_genes, "up_genes.txt")
+writeLines(down_genes, "down_genes.txt")
+```
+
+```{r}
+sessionInfo()
+```
