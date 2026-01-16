@@ -16,11 +16,11 @@ Across all donors, the annotated cell counts included 552,613 GZMK- CD56dim NK c
 
 ### Figure 1, Volcano plot comparing IL1B+ CD14 monocytes versus GZMK- CD56dim NK cells
 
-!(Volcano plot)[images/VolcanoPlot.png]
+![Volcano plot](images/VolcanoPlot.png)
 
 ### Figure 2, PCA of pseudobulks using the top 30 most significant genes
 
-!(PCA)[images/PCA.png]
+![PCA](images/PCA.png)
 
 The strong differential signal is consistent with the distinct biological roles of these cell types and the large numbers of cells available for aggregation. IL1B+ CD14 monocytes are a pro-inflammatory subset of CD14 monocytes implicated in arthritic pathology (see Allen AIFI cell type description: https://apps.allenimmunology.org/aifi/resources/imm-health-atlas/cell-type-descriptions/monocytes/). GZMK- CD56dim NK cells represent CD56dim NK populations that did not meet marker thresholds for other NK subtypes (see NK cell description: https://apps.allenimmunology.org/aifi/resources/imm-health-atlas/cell-type-descriptions/nk-cells-and-ilcs/). 
 
